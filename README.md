@@ -4,6 +4,8 @@ An advanced command-line utility built in Python that simplifies WiFi penetratio
 
 > ⚠️ This tool is for **educational purposes** and **authorized penetration testing** only.
 
+**WiFi adapter used:** `AWUS036ACH` — supports monitor mode and packet injection.
+
 ![Wifi Toolkit](https://github.com/user-attachments/assets/a056ea41-fb93-4da9-a8f1-b308a4be3c61)
 
 
@@ -28,7 +30,7 @@ An advanced command-line utility built in Python that simplifies WiFi penetratio
 - Kali Linux (or similar penetration testing distribution)
 - Root privileges
 - Python 3.x
-- Compatible wireless adapter with monitor mode support
+- Wireless adapter supporting monitor mode (e.g., `AWUS036ACH`)
 - Required dependencies:
   - terminaltables
 
