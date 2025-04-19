@@ -44,13 +44,13 @@ git clone https://github.com/CyberNilsen/Wifi-Commands-Kali.git
 cd Wifi-Commands-Kali
 ```
 
-# Make the script executable
+### Make the script executable
 bash
 ```
 chmod +x Wifi-Commands-Kali.py
 ```
 
-## 💻 Usage
+### 💻 Usage
 
 Run the tool with root privileges:
 
