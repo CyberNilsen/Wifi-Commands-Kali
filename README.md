@@ -51,6 +51,8 @@ cd Wifi-Commands-Kali
 chmod +x Wifi-Commands-Kali.py
 ```
 
+---
+
 ### 💻 Usage
 
 Run the tool with root privileges:  
@@ -58,3 +60,13 @@ Run the tool with root privileges:
 ```bash
 sudo ./Wifi-Commands-Kali.py
 ```
+
+---
+
+## 📜 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+> Developed with curiosity and passion by Andreas ([CyberNilsen](https://github.com/CyberNilsen))
