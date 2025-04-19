@@ -40,22 +40,21 @@ An advanced command-line utility built in Python that simplifies WiFi penetratio
 
 ### Install from GitHub
 
-bash
-```
+```bash
 git clone https://github.com/CyberNilsen/Wifi-Commands-Kali.git
 cd Wifi-Commands-Kali
 ```
 
 ### Make the script executable
-bash
-```
+
+```bash
 chmod +x Wifi-Commands-Kali.py
 ```
 
 ### 💻 Usage
 
 Run the tool with root privileges:  
-bash
-```
+
+```bash
 sudo ./Wifi-Commands-Kali.py
 ```
