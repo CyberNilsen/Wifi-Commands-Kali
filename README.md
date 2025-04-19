@@ -4,7 +4,8 @@ An advanced command-line utility built in Python that simplifies WiFi penetratio
 
 > ⚠️ This tool is for **educational purposes** and **authorized penetration testing** only.
 
-![WiFi Toolkit Banner](https://github.com/user-attachments/assets/placeholder-image.png)
+![Wifi Toolkit](https://github.com/user-attachments/assets/a056ea41-fb93-4da9-a8f1-b308a4be3c61)
+
 
 ---
 
@@ -44,4 +45,6 @@ cd Wifi-Commands-Kali
 ```
 
 # Make the script executable
+```bash
 chmod +x Wifi-Commands-Kali.py
+```
