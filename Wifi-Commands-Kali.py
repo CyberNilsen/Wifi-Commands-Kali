@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import syss
+import sys
 import time
 import subprocess
 import os
