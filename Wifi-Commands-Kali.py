@@ -821,23 +821,26 @@ def evil_twin_attack():
         except KeyboardInterrupt:
             stop_process("airodump-ng-scan")
     
-    print("\nSSID Options:")
-    print("1. Clone an existing network")
-    print("2. Create a custom named network")
+    target_ssid = input("Enter target SSID to clone: ").strip()
+    if not target_ssid:
+        print("[!] Target SSID is required")
+        return
+    
+    print("\nSSID Options for your Evil Twin:")
+    print("1. Use exact target SSID (perfect clone)")
+    print("2. Use a custom name")
     
     ssid_option = input("\nSelect option [1]: ").strip() or "1"
     
     if ssid_option == "1":
-        target_ssid = input("Enter target SSID to clone: ").strip()
-        if not target_ssid:
-            print("[!] SSID is required")
-            return
         ap_name = target_ssid
+        print(f"[+] Using exact target SSID: {ap_name}")
     else:
-        ap_name = input("Enter custom SSID for the access point: ").strip()
+        ap_name = input("Enter custom SSID for your access point: ").strip()
         if not ap_name:
-            print("[!] SSID is required")
+            print("[!] Custom SSID is required")
             return
+        print(f"[+] Using custom SSID: {ap_name}")
     
     channel = input("Enter channel to use [1]: ").strip() or "1"
     
@@ -904,8 +907,9 @@ def evil_twin_attack():
         current_processes.append(("hostapd", hostapd_proc))
         
         print("\n[+] Evil Twin AP is running!")
+        print(f"[+] Network SSID: {ap_name}")
         if security_option == "y":
-            print(f"[+] Network: {ap_name} | Password: {password}")
+            print(f"[+] Password: {password}")
         print("[*] Press Ctrl+C to stop")
         
         hostapd_proc.wait()
