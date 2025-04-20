@@ -291,20 +291,60 @@ def wifi_scan():
     
     try:
         try:
-            print("[*] Scanning networks (this may take a few seconds)...")
-            result = subprocess.run(
-                ["nmcli", "-f", "BSSID,SSID,CHAN,RATE,SIGNAL,SECURITY", "dev", "wifi", "list", "ifname", selected_interface],
-                capture_output=True, text=True, check=True
-            )
-            print("\n" + result.stdout)
+            print("[*] Scanning networks (this will take at least 15 seconds)...")
+            
+            temp_file = f"temp_scan_{int(time.time())}.txt"
+            
+            with open(temp_file, 'w') as outfile:
+                scan_process = subprocess.Popen(
+                    ["nmcli", "-f", "BSSID,SSID,CHAN,RATE,SIGNAL,SECURITY", "dev", "wifi", "list", "ifname", selected_interface, "--rescan", "yes"],
+                    stdout=outfile
+                )
+            
+            print("[*] Scanning networks...")
+            for i in range(15, 0, -1):
+                sys.stdout.write(f"\r[*] Scan in progress... {i} seconds remaining")
+                sys.stdout.flush()
+                time.sleep(1)
+            sys.stdout.write("\r[*] Processing scan results...                   \n")
+            
+            if scan_process.poll() is None:
+                scan_process.terminate()
+                try:
+                    scan_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    scan_process.kill()
+            
+            with open(temp_file, 'r') as f:
+                scan_output = f.read()
+            
+            print("\n" + scan_output)
+            
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+                
         except:
             print("[*] Using iwlist for scanning...")
-            result = subprocess.run(["iwlist", selected_interface, "scan"], capture_output=True, text=True, check=False)
+            print("[*] This will take at least 15 seconds...")
+            scan_process = subprocess.Popen(["iwlist", selected_interface, "scan"], stdout=subprocess.PIPE)
+            
+            for i in range(15, 0, -1):
+                sys.stdout.write(f"\r[*] Scan in progress... {i} seconds remaining")
+                sys.stdout.flush()
+                time.sleep(1)
+            sys.stdout.write("\r[*] Processing scan results...                   \n")
+            
+            if scan_process.poll() is None:
+                stdout, stderr = scan_process.communicate(timeout=5)
+            else:
+                stdout = scan_process.stdout.read()
+            
+            result_str = stdout.decode('utf-8', errors='ignore')
             
             networks = []
             current_network = None
             
-            for line in result.stdout.splitlines():
+            for line in result_str.splitlines():
                 line = line.strip()
                 
                 if "Cell" in line:
@@ -349,6 +389,8 @@ def wifi_scan():
         
     except subprocess.CalledProcessError as e:
         print(f"[!] Error running scan command: {e}")
+    except Exception as e:
+        print(f"[!] Unexpected error: {e}")
     
     print("\n[+] Scan complete!")
 
@@ -517,9 +559,6 @@ def run_deauth():
     if client_mac:
         command.extend(["-c", client_mac])
     
-    if channel:
-        command.extend(["-h", channel])
-        
     command.append(selected_interface)
     
     print(f"\n[*] Running: {' '.join(command)}")
